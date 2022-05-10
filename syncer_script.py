@@ -18,9 +18,9 @@
 #       does not currently
 #
 # Sample invocation:
-#    python3 nocd-sync-v2.py \
-#        --src mysql://root:$MYSQL_SRC_PWD@127.0.0.1:3306/nocd_v2 \
-#        --dst mysql://root:$MYSQL_DST_PWD@127.0.0.1:3306/nocd_v2
+#    python3 syncer_script.py \
+#        --src mysql://root:$MYSQL_SRC_PWD@127.0.0.1:3306/myDatabase \
+#        --dst mysql://root:$MYSQL_DST_PWD@127.0.0.1:3306/myDatabase
 #
 # TODO:
 #   - add table option:      --table src_db.src_tbl:dst_db.dst_tbl:pk_name
@@ -28,7 +28,6 @@
 #   - add verbose option:    --verbose
 
 import logging
-import os
 import re
 
 import pymysql
