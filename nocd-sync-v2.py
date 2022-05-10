@@ -1,9 +1,41 @@
+# Script to sync tables between databases. Reads all the rows from
+# the table in the source database and all the rows from the table
+# in the destination database and attempts to optimistically
+# insert/update only the differences in the destination table,
+# as well as deleting any extra rows from the destination table.
+# If this optimistic approach fails (e.g. rows can't be updated
+# because of constraint violations:
+# https://nocd.hashnode.dev/updates-order-and-the-binlog-1 ), then
+# the script will delete all the rows from the destination table
+# and then attempt to insert all the rows from the source table.
+#
+# Note: Because this script pulls all the rows in a table on the source
+#       and destination database, it should be used with care and not
+#       used on very large tables.
+#
+# Note: This script currently assumes that the tables have the same
+#       schema (e.g. columns, primary keys, constraints, etc.). It
+#       does not currently
+#
+# Sample invocation:
+#    python3 nocd-sync-v2.py \
+#        --src mysql://root:$MYSQL_SRC_PWD@127.0.0.1:3306/nocd_v2 \
+#        --dst mysql://root:$MYSQL_DST_PWD@127.0.0.1:3306/nocd_v2
+#
+# TODO:
+#   - add table option:      --table src_db.src_tbl:dst_db.dst_tbl:pk_name
+#   - add no-dry-run option: --no-dry-run
+#   - add verbose option:    --verbose
+
 import logging
 import os
+import re
 
 import pymysql
 import pymysql.cursors
+import typer
 
+app = typer.Typer()
 logging.basicConfig(
     format="%(asctime)s - %(process)d - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -58,25 +90,40 @@ def sync(table_name, dst_curs, src_curs):
         )
 
 
-def main():
+def parse_connection_string(url: str):
+    mysql_connection_url_regex = 'mysql://(.*?):(.*?)@(.*?):(.*?)/(.*)'
+    if re.search(mysql_connection_url_regex, url):
+        user, password, host, port, database = re.match(mysql_connection_url_regex, url).groups()
+        return user, password, host, port, database
+    else:
+        raise typer.BadParameter('Invalid MySQL connection URL')
+
+
+@app.command(no_args_is_help=True)
+def main(
+        src: str = typer.Option("", help="MySQL connection string for the source "
+                                         "database containing the table to read from"),
+        dst: str = typer.Option("", help="MySQL connection string for the destination "
+                                         "database containing the table to update"),
+):
+    src_user, src_password, src_host, src_port, src_database = parse_connection_string(src)
+    dst_user, dst_password, dst_host, dst_port, dst_database = parse_connection_string(dst)
     tables = ["email_templates_v2"]
-    src_host = os.environ.get("SHARED_DB_HOST", "")
-    dst_host = os.environ.get("MYSQL_HOST", "127.0.0.1")
 
     src = pymysql.connect(
         host=src_host,
-        port=int(os.environ.get("SHARED_DB_HOST_PORT", 3306)),
-        user=os.environ.get("SHARED_DB_USER", "admin"),
-        password=os.environ.get("SHARED_DB_PASSWORD", ""),
-        db="nocd_v2",
+        port=int(src_port),
+        user=src_user,
+        password=src_password,
+        db=src_database,
         cursorclass=pymysql.cursors.DictCursor,
     )
     dst = pymysql.connect(
         host=dst_host,
-        port=int(os.environ.get("MYSQL_PORT", 3306)),
-        user=os.environ.get("MYSQL_USER", "root"),
-        password=os.environ.get("MYSQL_PASSWORD", ""),
-        db=os.environ.get("MYSQL_DB_NAME", "nocd_v2"),
+        port=int(dst_port),
+        user=dst_user,
+        password=dst_password,
+        db=dst_database,
         cursorclass=pymysql.cursors.DictCursor,
     )
 
@@ -104,4 +151,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    app()
